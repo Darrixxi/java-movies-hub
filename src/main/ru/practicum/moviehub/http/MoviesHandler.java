@@ -11,10 +11,17 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.net.HttpURLConnection;
 
 public class MoviesHandler extends BaseHttpHandler {
 
     private final MoviesStore store;
+
+    public static final int MAX_TITLE_LENGTH = 100;
+    public static final int MIN_YEAR = 1888;
+
+    public static final int HTTP_METHOD_NOT_ALLOWED = 405;
+    public static final int HTTP_UNPROCESSABLE_ENTITY = 422;
 
     private static final Gson gson = new Gson();
 
@@ -33,7 +40,7 @@ public class MoviesHandler extends BaseHttpHandler {
             } else if ("POST".equalsIgnoreCase(method)) {
                 handleCreateMovie(ex);
             } else {
-                sendJson(ex, 405, new ErrorResponse("Method Not Allowed").toJson());
+                sendJson(ex, HTTP_METHOD_NOT_ALLOWED, new ErrorResponse("Method Not Allowed").toJson());
             }
             return;
         }
@@ -44,12 +51,12 @@ public class MoviesHandler extends BaseHttpHandler {
             } else if ("DELETE".equalsIgnoreCase(method)) {
                 handleDeleteMovie(ex, path);
             } else {
-                sendJson(ex, 405, new ErrorResponse("Method Not Allowed").toJson());
+                sendJson(ex, HTTP_METHOD_NOT_ALLOWED, new ErrorResponse("Method Not Allowed").toJson());
             }
             return;
         }
 
-        sendJson(ex, 404, new ErrorResponse("Not Found").toJson());
+        sendJson(ex, HttpURLConnection.HTTP_NOT_FOUND ,new ErrorResponse("Not Found").toJson());
     }
 
     private void handleGetAllMovies(HttpExchange ex) throws IOException {
@@ -60,26 +67,27 @@ public class MoviesHandler extends BaseHttpHandler {
                 int year = Integer.parseInt(query.substring(5));
 
                 int currentYear = java.time.Year.now().getValue();
-                if (year < 1888 || year > currentYear + 1) {
-                    sendJson(ex, 400, new ErrorResponse("Некорректный параметр запроса — 'year'").toJson());
+                if (year < MIN_YEAR || year > currentYear + 1) {
+                    sendJson(ex, HttpURLConnection.HTTP_BAD_REQUEST,
+                            new ErrorResponse("Некорректный параметр запроса — 'year'").toJson());
                     return;
                 }
 
                 List<Movie> filtered = store.getByYear(year);
-                sendJson(ex, 200, gson.toJson(filtered));
+                sendJson(ex, HttpURLConnection.HTTP_OK, gson.toJson(filtered));
             } catch (NumberFormatException e) {
-                sendJson(ex, 400, new ErrorResponse("Некорректный параметр запроса — 'year'").toJson());
+                sendJson(ex, HttpURLConnection.HTTP_BAD_REQUEST, new ErrorResponse("Некорректный параметр запроса — 'year'").toJson());
             }
         } else {
             List<Movie> all = store.getAll();
-            sendJson(ex, 200, gson.toJson(all));
+            sendJson(ex, HttpURLConnection.HTTP_OK, gson.toJson(all));
         }
     }
 
     private void handleCreateMovie(HttpExchange ex) throws IOException {
         String contentType = ex.getRequestHeaders().getFirst("Content-Type");
         if (contentType == null || !contentType.contains("application/json")) {
-            sendJson(ex, 415, new ErrorResponse("Unsupported Media Type").toJson());
+            sendJson(ex, HttpURLConnection.HTTP_UNSUPPORTED_TYPE, new ErrorResponse("Unsupported Media Type").toJson());
             return;
         }
 
@@ -89,20 +97,20 @@ public class MoviesHandler extends BaseHttpHandler {
         try {
             newMovie = Movie.fromJson(body);
         } catch (Exception e) {
-            sendJson(ex, 422, new ErrorResponse("Ошибка валидации",
+            sendJson(ex, HTTP_UNPROCESSABLE_ENTITY, new ErrorResponse("Ошибка валидации",
                     List.of("Некорректный JSON")).toJson());
             return;
         }
 
         List<String> errors = validateMovie(newMovie);
         if (!errors.isEmpty()) {
-            sendJson(ex, 422, new ErrorResponse("Ошибка валидации", errors).toJson());
+            sendJson(ex, HTTP_UNPROCESSABLE_ENTITY, new ErrorResponse("Ошибка валидации", errors).toJson());
             return;
         }
 
         Movie created = store.add(newMovie.getTitle(), newMovie.getYear());
 
-        sendJson(ex, 201, created.toJson());
+        sendJson(ex, HttpURLConnection.HTTP_CREATED, created.toJson());
     }
 
     private void handleGetMovieById(HttpExchange ex, String path) throws IOException {
@@ -111,12 +119,12 @@ public class MoviesHandler extends BaseHttpHandler {
             Movie movie = store.getById(id);
 
             if (movie != null) {
-                sendJson(ex, 200, movie.toJson());
+                sendJson(ex, HttpURLConnection.HTTP_OK, movie.toJson());
             } else {
-                sendJson(ex, 404, new ErrorResponse("Фильм не найден").toJson());
+                sendJson(ex, HttpURLConnection.HTTP_NOT_FOUND, new ErrorResponse("Фильм не найден").toJson());
             }
         } catch (NumberFormatException e) {
-            sendJson(ex, 400, new ErrorResponse("Некорректный ID").toJson());
+            sendJson(ex, HttpURLConnection.HTTP_BAD_REQUEST, new ErrorResponse("Некорректный ID").toJson());
         }
     }
 
@@ -128,10 +136,10 @@ public class MoviesHandler extends BaseHttpHandler {
             if (deleted) {
                 sendNoContent(ex);
             } else {
-                sendJson(ex, 404, new ErrorResponse("Фильм не найден").toJson());
+                sendJson(ex, HttpURLConnection.HTTP_NOT_FOUND, new ErrorResponse("Фильм не найден").toJson());
             }
         } catch (NumberFormatException e) {
-            sendJson(ex, 400, new ErrorResponse("Некорректный ID").toJson());
+            sendJson(ex, HttpURLConnection.HTTP_BAD_REQUEST, new ErrorResponse("Некорректный ID").toJson());
         }
     }
 
@@ -142,10 +150,10 @@ public class MoviesHandler extends BaseHttpHandler {
         if (movie.getTitle() == null || movie.getTitle().isBlank()) {
             errors.add("название не должно быть пустым");
         }
-        if (movie.getTitle() != null && movie.getTitle().length() > 100) {
+        if (movie.getTitle() != null && movie.getTitle().length() > MAX_TITLE_LENGTH) {
             errors.add("название не должно превышать 100 символов");
         }
-        if (movie.getYear() < 1888 || movie.getYear() > currentYear + 1) {
+        if (movie.getYear() < MIN_YEAR || movie.getYear() > currentYear + 1) {
             errors.add("год должен быть между 1888 и " + (currentYear + 1));
         }
         return errors;
