@@ -56,7 +56,7 @@ public class MoviesHandler extends BaseHttpHandler {
             return;
         }
 
-        sendJson(ex, HttpURLConnection.HTTP_NOT_FOUND ,new ErrorResponse("Not Found").toJson());
+        sendJson(ex, HttpURLConnection.HTTP_NOT_FOUND, new ErrorResponse("Not Found").toJson());
     }
 
     private void handleGetAllMovies(HttpExchange ex) throws IOException {
